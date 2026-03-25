@@ -1,0 +1,13 @@
+{
+  "endpoint": "/api/user",
+  "method": "POST",
+  "request": {
+    "user_id": "string",
+    "email": "string",
+    "age": "number"
+  },
+  "response": {
+    "status": "string",
+    "message": "string"
+  }
+}
