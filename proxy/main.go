@@ -3,29 +3,44 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"go_project/config"
+	"go_project/validator"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 )
 
+var contract *config.Contract
+
 func main() {
-	// Proxy forwards all traffic to ServiceB
+	// Load contract file
+	var err error
+	contract, err = config.LoadContract("contracts/user-service.json")
+	if err != nil {
+		fmt.Println("Failed to load contract:", err)
+		return
+	}
+	fmt.Println("Contract loaded for endpoint:", contract.Endpoint)
+
 	target, _ := url.Parse("http://localhost:8002")
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
-	// Wrap the proxy to intercept traffic
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 
-		// --- Intercept REQUEST body ---
+		// --- Validate REQUEST ---
 		reqBody, _ := io.ReadAll(r.Body)
-		r.Body = io.NopCloser(bytes.NewBuffer(reqBody)) // restore body after reading
+		r.Body = io.NopCloser(bytes.NewBuffer(reqBody))
 
 		fmt.Println("=== INCOMING REQUEST ===")
 		fmt.Printf("Endpoint: %s %s\n", r.Method, r.URL.Path)
 		fmt.Printf("Body: %s\n", string(reqBody))
 
-		// --- Intercept RESPONSE body ---
+		if r.URL.Path == contract.Endpoint && r.Method == contract.Method {
+			validator.ValidateJSON(reqBody, contract.Request, "REQUEST", contract)
+		}
+
+		// --- Validate RESPONSE ---
 		recorder := &ResponseRecorder{
 			ResponseWriter: w,
 			body:           &bytes.Buffer{},
@@ -36,6 +51,11 @@ func main() {
 		fmt.Println("=== OUTGOING RESPONSE ===")
 		fmt.Printf("Status: %d\n", recorder.status)
 		fmt.Printf("Body: %s\n", recorder.body.String())
+
+		if r.URL.Path == contract.Endpoint && r.Method == contract.Method {
+			validator.ValidateJSON(recorder.body.Bytes(), contract.Response, "RESPONSE", contract)
+		}
+
 		fmt.Println("========================")
 	})
 
@@ -43,7 +63,6 @@ func main() {
 	http.ListenAndServe(":8080", nil)
 }
 
-// ResponseRecorder captures the response so we can inspect it
 type ResponseRecorder struct {
 	http.ResponseWriter
 	status int
@@ -56,6 +75,6 @@ func (r *ResponseRecorder) WriteHeader(status int) {
 }
 
 func (r *ResponseRecorder) Write(b []byte) (int, error) {
-	r.body.Write(b) // capture response body
+	r.body.Write(b)
 	return r.ResponseWriter.Write(b)
 }
