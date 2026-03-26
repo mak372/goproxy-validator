@@ -1,2 +1,4 @@
 {"level":"warn","timestamp":"2026-03-25T19:28:45.964-0700","msg":"Contract violation detected","endpoint":"/api/user","method":"POST","direction":"REQUEST","field":"age","issue":"wrong type","expected":"number","got":"string","timestamp":"2026-03-25T19:28:45-07:00"}
 {"level":"info","timestamp":"2026-03-25T19:28:45.981-0700","msg":"Contract OK","endpoint":"/api/user","method":"POST","direction":"RESPONSE","timestamp":"2026-03-25T19:28:45-07:00"}
+{"level":"warn","timestamp":"2026-03-26T15:05:22.596-0700","msg":"Contract violation detected","endpoint":"/api/user","method":"POST","direction":"REQUEST","field":"age","issue":"wrong type","expected":"number","got":"string","timestamp":"2026-03-26T15:05:22-07:00"}
+{"level":"info","timestamp":"2026-03-26T15:05:22.618-0700","msg":"Contract OK","endpoint":"/api/user","method":"POST","direction":"RESPONSE","timestamp":"2026-03-26T15:05:22-07:00"}
