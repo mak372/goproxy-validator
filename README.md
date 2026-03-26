@@ -2,7 +2,7 @@
 
 A Go project that demonstrates a **contract-validating reverse proxy** sitting between two services. The proxy intercepts all traffic, validates the request and response payloads against a defined contract schema, and forwards everything transparently.
 
-Contracts are loaded **dynamically at runtime** — no file edits or restarts needed.
+Contracts are loaded **dynamically at runtime** no file edits or restarts needed.
 
 ---
 
@@ -18,8 +18,8 @@ Service A (:8001)  →  Proxy (:8080)  →  Service B (:8002)
                       (in memory)          responds
 ```
 
-1. You POST a contract to both **Service A** and the **Proxy** — they store it in memory
-2. You POST dynamic data to **Service A** `/send`
+1. POST a contract to both **Service A** and the **Proxy** — they store it in memory
+2. YPOST dynamic data to **Service A** `/send`
 3. **Service A** checks all contract fields are present in your payload, then forwards to the proxy
 4. **Proxy** validates the request payload against its contract (field names + types)
 5. **Proxy** forwards to **Service B**
@@ -27,7 +27,7 @@ Service A (:8001)  →  Proxy (:8080)  →  Service B (:8002)
 7. **Proxy** captures the response, validates it against the contract, and passes it back
 8. **Service A** returns the final status to you
 
-Nothing is blocked or modified — the proxy observes and reports violations only.
+Nothing is blocked or modified the proxy observes and reports violations only.
 
 ---
 
