@@ -2,22 +2,30 @@
 
 A Go project that demonstrates a **contract-validating reverse proxy** sitting between two services. The proxy intercepts all traffic, validates the request and response payloads against a defined contract schema, and forwards everything transparently.
 
+Contracts are loaded **dynamically at runtime** — no file edits or restarts needed.
+
 ---
 
 ## How It Works
 
 ```
-Service A  →  Proxy (:8080)  →  Service B (:8002)
-  :8001         ↕ validate           ↕
-             contract.json      responds
+You (curl)
+    ↓
+POST /contract         POST /contract
+    ↓                       ↓
+Service A (:8001)  →  Proxy (:8080)  →  Service B (:8002)
+                       ↕ validate              ↕
+                      (in memory)          responds
 ```
 
-1. **Service A** sends a POST request with a JSON payload to the proxy
-2. **Proxy** intercepts the request, reads the body, and validates it against the contract schema
-3. **Proxy** forwards the request to **Service B**
-4. **Service B** processes and responds
-5. **Proxy** captures the response, validates it against the contract schema, and passes it back to A
-6. **Service A** receives B's response
+1. You POST a contract to both **Service A** and the **Proxy** — they store it in memory
+2. You POST dynamic data to **Service A** `/send`
+3. **Service A** checks all contract fields are present in your payload, then forwards to the proxy
+4. **Proxy** validates the request payload against its contract (field names + types)
+5. **Proxy** forwards to **Service B**
+6. **Service B** processes and responds
+7. **Proxy** captures the response, validates it against the contract, and passes it back
+8. **Service A** returns the final status to you
 
 Nothing is blocked or modified — the proxy observes and reports violations only.
 
@@ -28,7 +36,7 @@ Nothing is blocked or modified — the proxy observes and reports violations onl
 ```
 go_project/
 ├── serviceA/
-│   └── main.go          # Sends POST request to the proxy
+│   └── main.go          # Accepts dynamic contract + data, forwards to proxy
 ├── serviceB/
 │   └── main.go          # Receives and processes the request
 ├── proxy/
@@ -36,9 +44,7 @@ go_project/
 ├── validator/
 │   └── validator.go     # Validates JSON payloads against a schema
 ├── config/
-│   └── config.go        # Loads the contract JSON file
-├── contracts/
-│   └── user-service.json  # Contract schema definition
+│   └── config.go        # Contract type definition and file loader
 └── go.mod
 ```
 
@@ -46,7 +52,7 @@ go_project/
 
 ## Contract Schema
 
-The contract is defined in `contracts/user-service.json`. It specifies the endpoint, HTTP method, and the expected fields + types for both the request and response.
+A contract defines the endpoint, HTTP method, and expected fields + types for both request and response.
 
 ```json
 {
@@ -70,28 +76,26 @@ Supported types: `string`, `number`, `boolean`, `object`, `array`, `null`
 
 ## Services
 
-| Service   | Port  | Role                                      |
-|-----------|-------|-------------------------------------------|
-| Service A | 8001  | Sends `POST /api/user` to the proxy       |
-| Proxy     | 8080  | Validates and forwards traffic            |
-| Service B | 8002  | Receives request, returns JSON response   |
+| Service   | Port | Role                                            |
+|-----------|------|-------------------------------------------------|
+| Service A | 8001 | Accepts contract + dynamic data, sends to proxy |
+| Proxy     | 8080 | Validates and forwards traffic                  |
+| Service B | 8002 | Receives request, returns JSON response         |
 
-### Service A — Request Payload
-```json
-{
-  "user_id": "123",
-  "email": "test@test.com",
-  "age": 25
-}
-```
+### Service A Endpoints
 
-### Service B — Response
-```json
-{
-  "status": "success",
-  "message": "user processed"
-}
-```
+| Method | Path        | Description                                      |
+|--------|-------------|--------------------------------------------------|
+| POST   | `/contract` | Load a contract into Service A                   |
+| GET    | `/schema`   | View the currently loaded contract               |
+| POST   | `/send`     | Send dynamic data to the proxy via the contract  |
+
+### Proxy Endpoints
+
+| Method | Path        | Description                                      |
+|--------|-------------|--------------------------------------------------|
+| POST   | `/contract` | Load a contract into the proxy                   |
+| ANY    | `/*`        | Intercept, validate, and forward to Service B    |
 
 ---
 
@@ -100,7 +104,7 @@ Supported types: `string`, `number`, `boolean`, `object`, `array`, `null`
 Open three terminals and run each service:
 
 ```bash
-# Terminal 1 — Service B (start first, proxy needs it running)
+# Terminal 1 — Service B
 cd serviceB && go run main.go
 
 # Terminal 2 — Proxy
@@ -110,23 +114,51 @@ cd proxy && go run main.go
 cd serviceA && go run main.go
 ```
 
-Then trigger the flow by hitting Service A:
+---
+
+## Workflow
+
+### Step 1 — POST the contract to both services
 
 ```bash
-curl http://localhost:8001/send
+curl -X POST http://localhost:8001/contract \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"/api/user","method":"POST","request":{"user_id":"string","email":"string","age":"number"},"response":{"status":"string","message":"string"}}'
+
+curl -X POST http://localhost:8080/contract \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"/api/user","method":"POST","request":{"user_id":"string","email":"string","age":"number"},"response":{"status":"string","message":"string"}}'
 ```
+
+### Step 2 — (Optional) Check the loaded schema
+
+```bash
+curl http://localhost:8001/schema
+```
+
+### Step 3 — Send dynamic data
+
+```bash
+curl -X POST http://localhost:8001/send \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"456","email":"alice@example.com","age":30}'
+```
+
+To change the contract later, repeat Step 1 with the new contract — no restart needed.
 
 ---
 
-## Example Proxy Output
+## Example Output
+
+### Proxy — valid request
 
 ```
-Contract loaded for endpoint: /api/user
+Contract updated: POST /api/user
 Proxy running on :8080
 
 === INCOMING REQUEST ===
 Endpoint: POST /api/user
-Body: {"user_id":"123","email":"test@test.com","age":25}
+Body: {"user_id":"456","email":"alice@example.com","age":30}
 [REQUEST] Contract OK
 
 === OUTGOING RESPONSE ===
@@ -136,12 +168,18 @@ Body: {"status":"success","message":"user processed"}
 ========================
 ```
 
-If a field is missing or has the wrong type, violations are printed:
+### Proxy — violations
 
 ```
 [REQUEST] Contract VIOLATIONS FOUND:
   - Field: age   | Issue: wrong type    | Expected: number | Got: string
   - Field: email | Issue: missing field | Expected: string | Got: null
+```
+
+### Service A — missing field rejection
+
+```
+HTTP 400: missing contract fields: email
 ```
 
 ---
@@ -157,4 +195,4 @@ If a field is missing or has the wrong type, violations are printed:
 - **Language:** Go
 - **Proxy:** `net/http/httputil.ReverseProxy`
 - **Validation:** Custom JSON schema validator
-- **Config:** JSON-based contract files
+- **Contract loading:** Dynamic via HTTP (in-memory, no file required)
