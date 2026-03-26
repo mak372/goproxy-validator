@@ -9,7 +9,7 @@ import (
 func main() {
 	http.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
 		// Simulate serviceA calling serviceB through the proxy
-		body := `{"user_id": "123", "email": "test@test.com", "age": 25}`
+		body := `{"user_id": "123", "email": "test@test.com", "age": "twenty"}`
 		resp, err := http.Post("http://localhost:8080/api/user",
 			"application/json", strings.NewReader(body))
 		if err != nil {

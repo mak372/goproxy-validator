@@ -2,8 +2,8 @@ package validator
 
 import (
 	"encoding/json"
-	"fmt"
 	"go_project/config"
+	"go_project/logger"
 )
 
 type Violation struct {
@@ -16,7 +16,6 @@ type Violation struct {
 func ValidateJSON(body []byte, schema map[string]string, direction string, contract *config.Contract) []Violation {
 	var violations []Violation
 
-	// Parse the incoming JSON into a map
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
 		violations = append(violations, Violation{
@@ -25,15 +24,14 @@ func ValidateJSON(body []byte, schema map[string]string, direction string, contr
 			Expected: "valid JSON",
 			Got:      string(body),
 		})
+		logger.LogViolation(contract.Endpoint, contract.Method, direction, "body", "invalid JSON", "valid JSON", string(body))
 		return violations
 	}
 
-	// Check every field defined in the contract
+	// Check every field in contract
 	for field, expectedType := range schema {
-
 		val, exists := data[field]
 
-		// Check if field is missing
 		if !exists {
 			violations = append(violations, Violation{
 				Field:    field,
@@ -41,10 +39,10 @@ func ValidateJSON(body []byte, schema map[string]string, direction string, contr
 				Expected: expectedType,
 				Got:      "null",
 			})
+			logger.LogViolation(contract.Endpoint, contract.Method, direction, field, "missing field", expectedType, "null")
 			continue
 		}
 
-		// Check if field type matches
 		actualType := getType(val)
 		if actualType != expectedType {
 			violations = append(violations, Violation{
@@ -53,30 +51,23 @@ func ValidateJSON(body []byte, schema map[string]string, direction string, contr
 				Expected: expectedType,
 				Got:      actualType,
 			})
+			logger.LogViolation(contract.Endpoint, contract.Method, direction, field, "wrong type", expectedType, actualType)
 		}
 	}
 
-	// Print results
 	if len(violations) == 0 {
-		fmt.Printf("[%s] Contract OK\n", direction)
-	} else {
-		fmt.Printf("[%s] Contract VIOLATIONS FOUND:\n", direction)
-		for _, v := range violations {
-			fmt.Printf("  - Field: %s | Issue: %s | Expected: %s | Got: %s\n",
-				v.Field, v.Issue, v.Expected, v.Got)
-		}
+		logger.LogOK(contract.Endpoint, contract.Method, direction)
 	}
 
 	return violations
 }
 
-// getType returns a simple type string for a JSON value
 func getType(val interface{}) string {
 	switch val.(type) {
 	case string:
 		return "string"
 	case float64:
-		return "number" // JSON numbers are float64 in Go
+		return "number"
 	case bool:
 		return "boolean"
 	case map[string]interface{}:
