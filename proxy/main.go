@@ -70,7 +70,7 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 
-		// --- Validate REQUEST ---
+		// --- Validate REQUEST before forwarding to Service B ---
 		reqBody, _ := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(bytes.NewBuffer(reqBody))
 
@@ -83,24 +83,52 @@ func main() {
 		mu.RUnlock()
 
 		if c != nil && r.URL.Path == c.Endpoint && r.Method == c.Method {
-			validator.ValidateJSON(reqBody, c.Request, "REQUEST", c)
+			violations := validator.ValidateJSON(reqBody, c.Request, "REQUEST", c)
+			if len(violations) > 0 {
+				fmt.Println("REQUEST blocked — contract violations found, not forwarding to Service B")
+				fmt.Println("========================")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":      "request violates contract",
+					"violations": violations,
+				})
+				return
+			}
 		}
 
-		// --- Validate RESPONSE ---
-		recorder := &ResponseRecorder{
-			ResponseWriter: w,
-			body:           &bytes.Buffer{},
-		}
-
+		// --- Forward to Service B and capture response ---
+		recorder := newResponseRecorder()
 		proxy.ServeHTTP(recorder, r)
 
+		// --- Validate RESPONSE before sending back to Service A ---
 		fmt.Println("=== OUTGOING RESPONSE ===")
 		fmt.Printf("Status: %d\n", recorder.status)
 		fmt.Printf("Body: %s\n", recorder.body.String())
 
 		if c != nil && r.URL.Path == c.Endpoint && r.Method == c.Method {
-			validator.ValidateJSON(recorder.body.Bytes(), c.Response, "RESPONSE", c)
+			violations := validator.ValidateJSON(recorder.body.Bytes(), c.Response, "RESPONSE", c)
+			if len(violations) > 0 {
+				fmt.Println("RESPONSE blocked — contract violations found, not sending to Service A")
+				fmt.Println("========================")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadGateway)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":      "response from Service B violates contract",
+					"violations": violations,
+				})
+				return
+			}
 		}
+
+		// Validation passed — send the response to Service A
+		for k, v := range recorder.header {
+			for _, vv := range v {
+				w.Header().Add(k, vv)
+			}
+		}
+		w.WriteHeader(recorder.status)
+		w.Write(recorder.body.Bytes())
 
 		fmt.Println("========================")
 	})
@@ -109,18 +137,30 @@ func main() {
 	http.ListenAndServe(":8080", nil)
 }
 
+// ResponseRecorder buffers the response from Service B without sending it to the client.
+// This allows the proxy to validate the response before deciding to send it.
 type ResponseRecorder struct {
-	http.ResponseWriter
+	header http.Header
 	status int
 	body   *bytes.Buffer
 }
 
+func newResponseRecorder() *ResponseRecorder {
+	return &ResponseRecorder{
+		header: make(http.Header),
+		body:   &bytes.Buffer{},
+		status: http.StatusOK,
+	}
+}
+
+func (r *ResponseRecorder) Header() http.Header {
+	return r.header
+}
+
 func (r *ResponseRecorder) WriteHeader(status int) {
 	r.status = status
-	r.ResponseWriter.WriteHeader(status)
 }
 
 func (r *ResponseRecorder) Write(b []byte) (int, error) {
-	r.body.Write(b)
-	return r.ResponseWriter.Write(b)
+	return r.body.Write(b)
 }
