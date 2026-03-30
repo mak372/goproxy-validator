@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const PROXY = "http://localhost:8080";
+const PROXY = import.meta.env.VITE_PROXY_URL || "http://localhost:8080";
 
 export default function ContractForm() {
   const [method, setMethod] = useState("POST");

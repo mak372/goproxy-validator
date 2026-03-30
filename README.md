@@ -1,33 +1,33 @@
 # Contract-Validating Proxy
 
-A Go project that demonstrates a **contract-validating reverse proxy** sitting between two services. The proxy intercepts all traffic, validates the request and response payloads against a defined contract schema, and forwards everything transparently.
+A Go project that demonstrates a **contract-validating reverse proxy** sitting between two services. The proxy intercepts all traffic, validates the request and response payloads against a defined contract schema, and either forwards the request or blocks it with a structured violation report.
 
-Contracts are loaded **dynamically at runtime** no file edits or restarts needed.
+Contracts are loaded **dynamically at runtime** — no file edits or restarts needed. Multiple contracts can be registered simultaneously, each routing to its own upstream target.
 
 ---
 
 ## How It Works
 
 ```
-You (curl)
-    ↓
-POST /contract         POST /contract
-    ↓                       ↓
+You / Frontend
+      ↓
 Service A (:8001)  →  Proxy (:8080)  →  Service B (:8002)
-                       ↕ validate              ↕
-                      (in memory)          responds
+                        ↕ validate
+                     (in memory)
 ```
 
-1. POST a contract to both **Service A** and the **Proxy** — they store it in memory
-2. YPOST dynamic data to **Service A** `/send`
-3. **Service A** checks all contract fields are present in your payload, then forwards to the proxy
-4. **Proxy** validates the request payload against its contract (field names + types)
+1. POST a contract to the **Proxy** — it stores the contract and its upstream `target` in memory
+2. Send a request to **Service A** `/verify`
+3. **Service A** forwards to the proxy at the contract's endpoint
+4. **Proxy** validates the request against the contract schema
+   - If violations are found → returns `400` with a structured violation list (request is blocked)
 5. **Proxy** forwards to **Service B**
 6. **Service B** processes and responds
-7. **Proxy** captures the response, validates it against the contract, and passes it back
-8. **Service A** returns the final status to you
+7. **Proxy** validates the response against the contract schema
+   - If violations are found → returns `502` with a structured violation list
+8. **Proxy** passes the response back to Service A, which returns it to the caller
 
-Nothing is blocked or modified the proxy observes and reports violations only.
+All violations are logged to a file via Zap and stored in memory, accessible via `GET /violations`.
 
 ---
 
@@ -36,15 +36,18 @@ Nothing is blocked or modified the proxy observes and reports violations only.
 ```
 go_project/
 ├── serviceA/
-│   └── main.go          # Accepts dynamic contract + data, forwards to proxy
+│   └── main.go          # KYC Verification Service — accepts requests, forwards to proxy
 ├── serviceB/
-│   └── main.go          # Receives and processes the request
+│   └── main.go          # Identity Registry Service — processes and responds
 ├── proxy/
-│   └── main.go          # Intercepts, validates, and forwards traffic
+│   └── main.go          # Intercepts, validates, blocks or forwards traffic
 ├── validator/
-│   └── validator.go     # Validates JSON payloads against a schema
+│   └── validator.go     # Recursive JSON schema validator (supports nested objects + arrays)
 ├── config/
 │   └── config.go        # Contract type definition and file loader
+├── logger/
+│   └── logger.go        # Zap-based structured logger
+├── frontend/            # React frontend (Vite)
 └── go.mod
 ```
 
@@ -52,134 +55,214 @@ go_project/
 
 ## Contract Schema
 
-A contract defines the endpoint, HTTP method, and expected fields + types for both request and response.
+A contract defines the endpoint, HTTP method, the upstream `target` URL, and expected fields + types for both request and response.
 
 ```json
 {
-  "endpoint": "/api/user",
+  "endpoint": "/api/kyc/verify",
   "method": "POST",
+  "target": "http://localhost:8002",
   "request": {
-    "user_id": "string",
-    "email": "string",
-    "age": "number"
+    "customerId": "string",
+    "fullName": "string",
+    "dateOfBirth": "string",
+    "documentType": "string",
+    "documentNumber": "string",
+    "address": {
+      "street": "string",
+      "city": "string",
+      "pincode": "string"
+    }
   },
   "response": {
+    "customerId": "string",
+    "verificationId": "string",
     "status": "string",
-    "message": "string"
+    "riskScore": "number",
+    "verifiedAt": "string"
   }
 }
 ```
 
 Supported types: `string`, `number`, `boolean`, `object`, `array`, `null`
 
+Nested objects and arrays are validated recursively. Field paths in violation reports use dot notation (e.g. `address.city`) and bracket notation for array items (e.g. `items[0].name`).
+
 ---
 
 ## Services
 
-| Service   | Port | Role                                            |
-|-----------|------|-------------------------------------------------|
-| Service A | 8001 | Accepts contract + dynamic data, sends to proxy |
-| Proxy     | 8080 | Validates and forwards traffic                  |
-| Service B | 8002 | Receives request, returns JSON response         |
+| Service   | Port | Role                                                      |
+|-----------|------|-----------------------------------------------------------|
+| Service A | 8001 | KYC Verification — accepts requests, forwards to proxy    |
+| Proxy     | 8080 | Validates and forwards traffic; manages contracts         |
+| Service B | 8002 | Identity Registry — processes KYC request, returns result |
 
 ### Service A Endpoints
 
-| Method | Path        | Description                                      |
-|--------|-------------|--------------------------------------------------|
-| POST   | `/contract` | Load a contract into Service A                   |
-| GET    | `/schema`   | View the currently loaded contract               |
-| POST   | `/send`     | Send dynamic data to the proxy via the contract  |
+| Method | Path      | Description                                      |
+|--------|-----------|--------------------------------------------------|
+| POST   | `/verify` | Accept a KYC request and forward it to the proxy |
 
 ### Proxy Endpoints
 
-| Method | Path        | Description                                      |
-|--------|-------------|--------------------------------------------------|
-| POST   | `/contract` | Load a contract into the proxy                   |
-| ANY    | `/*`        | Intercept, validate, and forward to Service B    |
+| Method | Path          | Description                                             |
+|--------|---------------|---------------------------------------------------------|
+| POST   | `/contract`   | Register a new contract (includes target URL)           |
+| GET    | `/contracts`  | List all currently loaded contracts                     |
+| GET    | `/violations` | Return the in-memory violation history                  |
+| ANY    | `/*`          | Intercept, validate, and forward to the contract target |
 
 ---
 
 ## Running the Project
 
+### Backend
+
 Open three terminals and run each service:
 
 ```bash
-# Terminal 1 — Service B
+# Terminal 1 — Service B (Identity Registry)
 cd serviceB && go run main.go
 
 # Terminal 2 — Proxy
 cd proxy && go run main.go
 
-# Terminal 3 — Service A
+# Terminal 3 — Service A (KYC Verification)
 cd serviceA && go run main.go
 ```
 
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend runs on `http://localhost:5173` by default.
+
 ---
 
-## Workflow
+## Workflow (curl)
 
-### Step 1 — POST the contract to both services
+### Step 1 — Register a contract with the proxy
 
 ```bash
-curl -X POST http://localhost:8001/contract \
-  -H "Content-Type: application/json" \
-  -d '{"endpoint":"/api/user","method":"POST","request":{"user_id":"string","email":"string","age":"number"},"response":{"status":"string","message":"string"}}'
-
 curl -X POST http://localhost:8080/contract \
   -H "Content-Type: application/json" \
-  -d '{"endpoint":"/api/user","method":"POST","request":{"user_id":"string","email":"string","age":"number"},"response":{"status":"string","message":"string"}}'
+  -d '{
+    "endpoint": "/api/kyc/verify",
+    "method": "POST",
+    "target": "http://localhost:8002",
+    "request": {
+      "customerId": "string",
+      "fullName": "string",
+      "dateOfBirth": "string",
+      "documentType": "string",
+      "documentNumber": "string",
+      "address": {
+        "street": "string",
+        "city": "string",
+        "pincode": "string"
+      }
+    },
+    "response": {
+      "customerId": "string",
+      "verificationId": "string",
+      "status": "string",
+      "riskScore": "number",
+      "verifiedAt": "string"
+    }
+  }'
 ```
 
-### Step 2 — (Optional) Check the loaded schema
+### Step 2 — Send a KYC request
 
 ```bash
-curl http://localhost:8001/schema
-```
-
-### Step 3 — Send dynamic data
-
-```bash
-curl -X POST http://localhost:8001/send \
+curl -X POST http://localhost:8001/verify \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"456","email":"alice@example.com","age":30}'
+  -d '{
+    "customerId": "C001",
+    "fullName": "Amit Sharma",
+    "dateOfBirth": "1990-01-15",
+    "documentType": "DL",
+    "documentNumber": "DL1234567",
+    "address": {
+      "street": "12 MG Road",
+      "city": "Bangalore",
+      "pincode": "560001"
+    }
+  }'
 ```
 
-To change the contract later, repeat Step 1 with the new contract — no restart needed.
+### Step 3 — View violation history
+
+```bash
+curl http://localhost:8080/violations
+```
 
 ---
 
 ## Example Output
 
-### Proxy — valid request
+### Proxy — valid request and response
 
 ```
-Contract updated: POST /api/user
-Proxy running on :8080
-
 === INCOMING REQUEST ===
-Endpoint: POST /api/user
-Body: {"user_id":"456","email":"alice@example.com","age":30}
+Endpoint: POST /api/kyc/verify
+Body: {"customerId":"C001","fullName":"Amit Sharma",...}
 [REQUEST] Contract OK
 
 === OUTGOING RESPONSE ===
 Status: 200
-Body: {"status":"success","message":"user processed"}
+Body: {"customerId":"C001","verificationId":"VER-...","status":"verified","riskScore":12.4,"verifiedAt":"..."}
 [RESPONSE] Contract OK
 ========================
 ```
 
-### Proxy — violations
+### Proxy — request blocked (violations found)
 
 ```
-[REQUEST] Contract VIOLATIONS FOUND:
-  - Field: age   | Issue: wrong type    | Expected: number | Got: string
-  - Field: email | Issue: missing field | Expected: string | Got: null
+REQUEST blocked — contract violations found
+
+HTTP 400:
+{
+  "error": "request violates contract",
+  "violations": [
+    { "Field": "address.pincode", "Issue": "missing field", "Expected": "string", "Got": "null" },
+    { "Field": "fullName",        "Issue": "wrong type",    "Expected": "string", "Got": "number" }
+  ]
+}
 ```
 
-### Service A — missing field rejection
+### Proxy — response blocked (upstream violation)
 
 ```
-HTTP 400: missing contract fields: email
+HTTP 502:
+{
+  "error": "response from upstream violates contract",
+  "violations": [
+    { "Field": "verifiedAt", "Issue": "missing field", "Expected": "string", "Got": "null" }
+  ]
+}
+```
+
+---
+
+## Frontend
+
+The React frontend provides three panels:
+
+- **Publish Contract** — define a contract (method, endpoint, target URL, request/response schemas) and register it with the proxy
+- **Test Request** — send a request to Service A and view the result or a detailed violation table inline
+- **Violation History** — browse all recorded violations with timestamps, direction badges (REQUEST / RESPONSE), and per-field details
+
+Service URLs are configurable via environment variables:
+
+```
+VITE_PROXY_URL=http://localhost:8080
+VITE_SERVICE_A_URL=http://localhost:8001
 ```
 
 ---
@@ -187,6 +270,7 @@ HTTP 400: missing contract fields: email
 ## Requirements
 
 - Go 1.24+
+- Node.js 18+ (frontend only)
 
 ---
 
@@ -194,5 +278,7 @@ HTTP 400: missing contract fields: email
 
 - **Language:** Go
 - **Proxy:** `net/http/httputil.ReverseProxy`
-- **Validation:** Custom JSON schema validator
-- **Contract loading:** Dynamic via HTTP (in-memory, no file required)
+- **Validation:** Custom recursive JSON schema validator (no external dependencies)
+- **Logging:** Uber Zap (structured, file-based)
+- **Contract storage:** In-memory map, keyed by `METHOD /endpoint`; can also bootstrap from file (`contracts/user-service.json`)
+- **Frontend:** React + Vite

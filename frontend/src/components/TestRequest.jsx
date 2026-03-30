@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const SERVICE_A = "http://localhost:8001";
+const SERVICE_A = import.meta.env.VITE_SERVICE_A_URL || "http://localhost:8001";
 
 export default function TestRequest() {
   const [method, setMethod] = useState("POST");
@@ -32,7 +32,7 @@ export default function TestRequest() {
         options.body = body;
       }
 
-      const res = await fetch(`${SERVICE_A}/send?endpoint=${endpoint}`, options);
+      const res = await fetch(`${SERVICE_A}${endpoint}`, options);
       const data = await res.json();
 
       if (res.ok) {
