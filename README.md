@@ -2,7 +2,7 @@
 
 A Go project that demonstrates a **contract-validating reverse proxy** sitting between two services. The proxy intercepts all traffic, validates the request and response payloads against a defined contract schema, and either forwards the request or blocks it with a structured violation report.
 
-Contracts are loaded **dynamically at runtime** — no file edits or restarts needed. Multiple contracts can be registered simultaneously, each routing to its own upstream target.
+Contracts are loaded **dynamically at runtime** no file edits or restarts needed. Multiple contracts can be registered simultaneously, each routing to its own upstream target.
 
 ---
 
