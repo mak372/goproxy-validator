@@ -269,6 +269,8 @@ VITE_SERVICE_A_URL=http://localhost:8001
 
 ## Live Demo
 
+You can find the live demo at https://microservice-contract-validator.vercel.app
+
 The project is deployed and accessible at:
 
 | Component | URL |
@@ -278,27 +280,6 @@ The project is deployed and accessible at:
 
 The frontend is hosted on **Vercel** and the backend proxy is hosted on **Render** (free tier). Note that the backend may take ~30 seconds to respond on the first request after a period of inactivity (Render free tier spins down idle services).
 
----
-
-## Deployment
-
-### Frontend (Vercel)
-
-The React frontend is deployed via Vercel. Set the following environment variables in the Vercel project settings:
-
-```
-VITE_PROXY_URL=https://microservice-contract-validator.onrender.com
-VITE_SERVICE_A_URL=https://microservice-contract-validator.onrender.com
-```
-
-### Backend (Render)
-
-The Go proxy is deployed as a Web Service on Render with:
-
-- **Build Command:** `go build -o goProxy ./proxy/main.go`
-- **Start Command:** `./goProxy`
-
----
 
 ## Requirements
 
