@@ -6,6 +6,19 @@ Contracts are loaded **dynamically at runtime** no file edits or restarts needed
 
 ---
 
+## Live Demo
+
+You can find the live demo at https://microservice-contract-validator.vercel.app
+
+The project is deployed and accessible at:
+
+| Component | URL |
+|-----------|-----|
+| Frontend  | https://microservice-contract-validator.vercel.app |
+| Backend (Proxy) | https://microservice-contract-validator.onrender.com |
+
+The frontend is hosted on **Vercel** and the backend proxy is hosted on **Render** (free tier). Note that the backend may take ~30 seconds to respond on the first request after a period of inactivity (Render free tier spins down idle services).
+
 ## How It Works
 
 ```
@@ -267,18 +280,6 @@ VITE_SERVICE_A_URL=http://localhost:8001
 
 ---
 
-## Live Demo
-
-You can find the live demo at https://microservice-contract-validator.vercel.app
-
-The project is deployed and accessible at:
-
-| Component | URL |
-|-----------|-----|
-| Frontend  | https://microservice-contract-validator.vercel.app |
-| Backend (Proxy) | https://microservice-contract-validator.onrender.com |
-
-The frontend is hosted on **Vercel** and the backend proxy is hosted on **Render** (free tier). Note that the backend may take ~30 seconds to respond on the first request after a period of inactivity (Render free tier spins down idle services).
 
 
 ## Requirements
