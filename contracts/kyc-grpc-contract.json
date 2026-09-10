@@ -1,0 +1,28 @@
+{
+  "endpoint": "/api/kyc/verify-grpc",
+  "method": "POST",
+  "target": "localhost:9002",
+  "protocol": "grpc",
+  "grpcService": "kyc.KycService",
+  "grpcMethod": "Verify",
+  "protoSource": "syntax = \"proto3\";\n\npackage kyc;\n\noption go_package = \"go_project/protos/kyc/kycpb\";\n\nmessage Address {\n  string street = 1;\n  string city = 2;\n  string pincode = 3;\n}\n\nmessage VerifyRequest {\n  string customerId = 1;\n  string fullName = 2;\n  string dateOfBirth = 3;\n  string documentType = 4;\n  string documentNumber = 5;\n  Address address = 6;\n}\n\nmessage VerifyResponse {\n  string customerId = 1;\n  string verificationId = 2;\n  string status = 3;\n  double riskScore = 4;\n  string verifiedAt = 5;\n}\n\n// KycService is the downstream gRPC service the gateway proxies to.\n// It mirrors the existing Service B JSON/HTTP contract field-for-field so\n// the same request can be served over either transport.\nservice KycService {\n  rpc Verify(VerifyRequest) returns (VerifyResponse);\n}\n",
+  "request": {
+    "customerId": "string",
+    "fullName": "string",
+    "dateOfBirth": "string",
+    "documentType": "string",
+    "documentNumber": "string",
+    "address": {
+      "street": "string",
+      "city": "string",
+      "pincode": "string"
+    }
+  },
+  "response": {
+    "customerId": "string",
+    "verificationId": "string",
+    "status": "string",
+    "riskScore": "number",
+    "verifiedAt": "string"
+  }
+}

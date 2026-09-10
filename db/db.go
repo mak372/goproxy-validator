@@ -45,6 +45,10 @@ func createTables() error {
 		);
 
 		ALTER TABLE contracts ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT '';
+		ALTER TABLE contracts ADD COLUMN IF NOT EXISTS protocol TEXT NOT NULL DEFAULT 'http';
+		ALTER TABLE contracts ADD COLUMN IF NOT EXISTS proto_source TEXT NOT NULL DEFAULT '';
+		ALTER TABLE contracts ADD COLUMN IF NOT EXISTS grpc_service TEXT NOT NULL DEFAULT '';
+		ALTER TABLE contracts ADD COLUMN IF NOT EXISTS grpc_method TEXT NOT NULL DEFAULT '';
 
 		CREATE TABLE IF NOT EXISTS violations (
 			id        SERIAL PRIMARY KEY,
@@ -65,17 +69,20 @@ func SaveContract(c *config.Contract) error {
 	res, _ := json.Marshal(c.Response)
 	key := c.Method + " " + c.Endpoint
 	c.CreatedAt = time.Now().Format(time.RFC3339)
+	if c.Protocol == "" {
+		c.Protocol = "http"
+	}
 	_, err := DB.Exec(`
-		INSERT INTO contracts (key, endpoint, method, target, request, response, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO contracts (key, endpoint, method, target, request, response, created_at, protocol, proto_source, grpc_service, grpc_method)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (key) DO UPDATE
-		SET endpoint=$2, method=$3, target=$4, request=$5, response=$6, created_at=$7
-	`, key, c.Endpoint, c.Method, c.Target, req, res, c.CreatedAt)
+		SET endpoint=$2, method=$3, target=$4, request=$5, response=$6, created_at=$7, protocol=$8, proto_source=$9, grpc_service=$10, grpc_method=$11
+	`, key, c.Endpoint, c.Method, c.Target, req, res, c.CreatedAt, c.Protocol, c.ProtoSource, c.GRPCService, c.GRPCMethod)
 	return err
 }
 
 func LoadAllContracts() (map[string]*config.Contract, error) {
-	rows, err := DB.Query(`SELECT key, endpoint, method, target, request, response, created_at FROM contracts`)
+	rows, err := DB.Query(`SELECT key, endpoint, method, target, request, response, created_at, protocol, proto_source, grpc_service, grpc_method FROM contracts`)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +93,7 @@ func LoadAllContracts() (map[string]*config.Contract, error) {
 		var key string
 		var c config.Contract
 		var req, res []byte
-		if err := rows.Scan(&key, &c.Endpoint, &c.Method, &c.Target, &req, &res, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&key, &c.Endpoint, &c.Method, &c.Target, &req, &res, &c.CreatedAt, &c.Protocol, &c.ProtoSource, &c.GRPCService, &c.GRPCMethod); err != nil {
 			return nil, err
 		}
 		json.Unmarshal(req, &c.Request)

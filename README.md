@@ -4,6 +4,8 @@ A Go project that demonstrates a **contract-validating reverse proxy** sitting b
 
 Contracts are loaded **dynamically at runtime** no file edits or restarts needed. Multiple contracts can be registered simultaneously, each routing to its own upstream target.
 
+The proxy also acts as an **HTTP-to-gRPC gateway**: a contract can declare `"protocol": "grpc"` and embed a `.proto` schema, and the proxy will accept REST/JSON, translate it into a Protobuf message, call the downstream gRPC service, and translate the response back to JSON — with the same request/response contract validation and violation reporting as the HTTP path. See [gRPC Gateway Mode](#grpc-gateway-mode) below.
+
 ---
 
 ## Live Demo
@@ -51,9 +53,15 @@ go_project/
 ├── serviceA/
 │   └── main.go          # KYC Verification Service — accepts requests, forwards to proxy
 ├── serviceB/
-│   └── main.go          # Identity Registry Service — processes and responds
+│   └── main.go          # Identity Registry Service (HTTP/JSON) — processes and responds
+├── serviceB-grpc/
+│   └── main.go          # Identity Registry Service (gRPC) — same logic, served over gRPC
 ├── proxy/
-│   └── main.go          # Intercepts, validates, blocks or forwards traffic
+│   └── main.go          # Intercepts, validates, blocks or forwards traffic (HTTP or gRPC upstream)
+├── grpcgateway/
+│   └── grpcgateway.go   # Dynamic HTTP-to-gRPC translation (protocompile + dynamicpb, no codegen)
+├── protos/kyc/kycpb/
+│   └── kyc.proto        # Example .proto schema for the gRPC demo (+ generated Go stubs for serviceB-grpc)
 ├── validator/
 │   └── validator.go     # Recursive JSON schema validator (supports nested objects + arrays)
 ├── config/
@@ -100,6 +108,66 @@ A contract defines the endpoint, HTTP method, the upstream `target` URL, and exp
 Supported types: `string`, `number`, `boolean`, `object`, `array`, `null`
 
 Nested objects and arrays are validated recursively. Field paths in violation reports use dot notation (e.g. `address.city`) and bracket notation for array items (e.g. `items[0].name`).
+
+---
+
+## gRPC Gateway Mode
+
+A contract can proxy to a **gRPC upstream** instead of an HTTP one. Add `"protocol": "grpc"` plus the contract's `.proto` schema:
+
+```json
+{
+  "endpoint": "/api/kyc/verify-grpc",
+  "method": "POST",
+  "target": "localhost:9002",
+  "protocol": "grpc",
+  "grpcService": "kyc.KycService",
+  "grpcMethod": "Verify",
+  "protoSource": "syntax = \"proto3\"; package kyc; ...",
+  "request": { "...": "same JSON schema as the HTTP contract" },
+  "response": { "...": "same JSON schema as the HTTP contract" }
+}
+```
+
+- `target` is a `host:port` gRPC address (no scheme).
+- `protoSource` is the raw `.proto` file contents. It's compiled **in memory** at contract-registration time — no `protoc` binary, no generated stubs, no gateway rebuild or restart needed to add a new gRPC contract, matching the existing "dynamic contracts" model.
+- `request`/`response` are validated exactly as they are for HTTP contracts; the transport underneath is transparent to the validation and violation-logging layer.
+
+Request flow: **REST/JSON in → Protobuf message → gRPC call to the upstream → Protobuf response → JSON out**, with the same contract-violation blocking (`400`/`502` + structured violation list) on either side of the call.
+
+Implementation notes (`grpcgateway/grpcgateway.go`):
+- [`protocompile`](https://github.com/bufbuild/protocompile) (the compiler used inside the `buf` CLI) compiles the contract's `.proto` source into standard `google.golang.org/protobuf` descriptors — no third-party dynamic-message library, no deprecated APIs.
+- [`dynamicpb`](https://pkg.go.dev/google.golang.org/protobuf/types/dynamicpb) builds request/response messages from those descriptors, and `protojson` converts between them and the JSON the gateway speaks to callers.
+- `grpc.ClientConn.Invoke` dispatches the call generically by fully-qualified method name — no generated client stub is needed for the gateway to call an arbitrary gRPC service.
+- Compiled descriptors and dialed connections are cached per contract key, so a contract's `.proto` is parsed once (at first use), not on every request.
+
+The demo downstream (`serviceB-grpc/`), by contrast, is a normal `protoc`/`buf`-generated gRPC server — real backend teams write services against generated stubs for type safety and performance; only the gateway needs to handle schemas it doesn't know about at compile time.
+
+### Try it
+
+```bash
+# 1. Start the gRPC downstream
+cd serviceB-grpc && go run main.go   # :9002
+
+# 2. Register a gRPC contract (protoSource = contents of protos/kyc/kycpb/kyc.proto)
+curl -X POST http://localhost:8080/contract \
+  -H "Content-Type: application/json" \
+  -d @contracts/kyc-grpc-contract.json
+
+# 3. Call it exactly like the HTTP contract
+curl -X POST http://localhost:8080/api/kyc/verify-grpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerId": "C001",
+    "fullName": "Amit Sharma",
+    "dateOfBirth": "1990-01-15",
+    "documentType": "DL",
+    "documentNumber": "DL1234567",
+    "address": { "street": "12 MG Road", "city": "Bangalore", "pincode": "560001" }
+  }'
+```
+
+To regenerate `serviceB-grpc`'s stubs after editing `protos/kyc/kycpb/kyc.proto`, run `buf generate` (requires the `buf`, `protoc-gen-go`, and `protoc-gen-go-grpc` binaries on `PATH` — all installable via `go install`, no `protoc` C++ binary required).
 
 ---
 

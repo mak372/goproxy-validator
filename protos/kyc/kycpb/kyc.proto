@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package kyc;
+
+option go_package = "go_project/protos/kyc/kycpb";
+
+message Address {
+  string street = 1;
+  string city = 2;
+  string pincode = 3;
+}
+
+message VerifyRequest {
+  string customerId = 1;
+  string fullName = 2;
+  string dateOfBirth = 3;
+  string documentType = 4;
+  string documentNumber = 5;
+  Address address = 6;
+}
+
+message VerifyResponse {
+  string customerId = 1;
+  string verificationId = 2;
+  string status = 3;
+  double riskScore = 4;
+  string verifiedAt = 5;
+}
+
+// KycService is the downstream gRPC service the gateway proxies to.
+// It mirrors the existing Service B JSON/HTTP contract field-for-field so
+// the same request can be served over either transport.
+service KycService {
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+}

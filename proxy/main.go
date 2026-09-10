@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go_project/config"
 	"go_project/db"
+	"go_project/grpcgateway"
 	"go_project/logger"
 	"go_project/validator"
 	"io"
@@ -81,7 +82,15 @@ func main() {
 			http.Error(w, "contract must have endpoint, method, target, and request fields", http.StatusBadRequest)
 			return
 		}
+		if c.Protocol == "" {
+			c.Protocol = "http"
+		}
+		if c.IsGRPC() && (c.ProtoSource == "" || c.GRPCService == "" || c.GRPCMethod == "") {
+			http.Error(w, "grpc contracts must also have protoSource, grpcService, and grpcMethod", http.StatusBadRequest)
+			return
+		}
 		key := c.Method + " " + c.Endpoint
+		grpcgateway.Invalidate(key) // drop any stale cached connection/descriptor for this key
 		mu.Lock()
 		contracts[key] = &c
 		mu.Unlock()
@@ -114,6 +123,7 @@ func main() {
 			return
 		}
 		key := method + " " + endpoint
+		grpcgateway.Invalidate(key)
 		mu.Lock()
 		delete(contracts, key)
 		mu.Unlock()
@@ -211,32 +221,45 @@ func main() {
 			return
 		}
 
-		targetURL := c.Target + r.URL.Path
-		if r.URL.RawQuery != "" {
-			targetURL += "?" + r.URL.RawQuery
-		}
-		outReq, err := http.NewRequest(r.Method, targetURL, bytes.NewBuffer(reqBody))
-		if err != nil {
-			http.Error(w, "failed to create upstream request: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		outReq.Header.Set("Content-Type", "application/json")
+		var respBody []byte
+		statusCode := http.StatusOK
 
-		client := &http.Client{}
-		upstreamResp, err := client.Do(outReq)
-		if err != nil {
-			http.Error(w, "failed to reach upstream: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer upstreamResp.Body.Close()
-		respBody, err := io.ReadAll(upstreamResp.Body)
-		if err != nil {
-			http.Error(w, "failed to read upstream response: "+err.Error(), http.StatusBadGateway)
-			return
+		if c.IsGRPC() {
+			// HTTP/JSON in -> Protobuf message -> gRPC call -> Protobuf response -> JSON out.
+			respBody, err = grpcgateway.Invoke(r.Context(), key, c, reqBody)
+			if err != nil {
+				http.Error(w, "failed to reach gRPC upstream: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+		} else {
+			targetURL := c.Target + r.URL.Path
+			if r.URL.RawQuery != "" {
+				targetURL += "?" + r.URL.RawQuery
+			}
+			outReq, err := http.NewRequest(r.Method, targetURL, bytes.NewBuffer(reqBody))
+			if err != nil {
+				http.Error(w, "failed to create upstream request: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			outReq.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{}
+			upstreamResp, err := client.Do(outReq)
+			if err != nil {
+				http.Error(w, "failed to reach upstream: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer upstreamResp.Body.Close()
+			respBody, err = io.ReadAll(upstreamResp.Body)
+			if err != nil {
+				http.Error(w, "failed to read upstream response: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			statusCode = upstreamResp.StatusCode
 		}
 
 		fmt.Println("=== OUTGOING RESPONSE ===")
-		fmt.Printf("Status: %d\n", upstreamResp.StatusCode)
+		fmt.Printf("Status: %d\n", statusCode)
 		fmt.Printf("Body: %s\n", string(respBody))
 
 		respViolations := validator.ValidateJSON(respBody, c.Response, "RESPONSE", c)
@@ -254,7 +277,7 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(upstreamResp.StatusCode)
+		w.WriteHeader(statusCode)
 		w.Write(respBody)
 
 		fmt.Println("========================")
