@@ -31,7 +31,7 @@ Service A (:8001)  →  Proxy (:8080)  →  Service B (:8002)
                      (in memory)
 ```
 
-1. POST a contract to the **Proxy** — it stores the contract and its upstream `target` in memory
+1. POST a contract to the **Proxy** it stores the contract and its upstream `target` in memory
 2. Send a request to **Service A** `/verify`
 3. **Service A** forwards to the proxy at the contract's endpoint
 4. **Proxy** validates the request against the contract schema
@@ -175,9 +175,9 @@ To regenerate `serviceB-grpc`'s stubs after editing `protos/kyc/kycpb/kyc.proto`
 
 | Service   | Port | Role                                                      |
 |-----------|------|-----------------------------------------------------------|
-| Service A | 8001 | KYC Verification — accepts requests, forwards to proxy    |
+| Service A | 8001 | KYC Verification - accepts requests, forwards to proxy    |
 | Proxy     | 8080 | Validates and forwards traffic; manages contracts         |
-| Service B | 8002 | Identity Registry — processes KYC request, returns result |
+| Service B | 8002 | Identity Registry - processes KYC request, returns result |
 
 ### Service A Endpoints
 
@@ -227,7 +227,7 @@ The frontend runs on `http://localhost:5173` by default.
 
 ## Workflow (curl)
 
-### Step 1 — Register a contract with the proxy
+### Step 1 - Register a contract with the proxy
 
 ```bash
 curl -X POST http://localhost:8080/contract \
@@ -258,7 +258,7 @@ curl -X POST http://localhost:8080/contract \
   }'
 ```
 
-### Step 2 — Send a KYC request
+### Step 2 - Send a KYC request
 
 ```bash
 curl -X POST http://localhost:8001/verify \
@@ -277,7 +277,7 @@ curl -X POST http://localhost:8001/verify \
   }'
 ```
 
-### Step 3 — View violation history
+### Step 3 - View violation history
 
 ```bash
 curl http://localhost:8080/violations
@@ -287,7 +287,7 @@ curl http://localhost:8080/violations
 
 ## Example Output
 
-### Proxy — valid request and response
+### Proxy - valid request and response
 
 ```
 === INCOMING REQUEST ===
@@ -302,7 +302,7 @@ Body: {"customerId":"C001","verificationId":"VER-...","status":"verified","riskS
 ========================
 ```
 
-### Proxy — request blocked (violations found)
+### Proxy - request blocked (violations found)
 
 ```
 REQUEST blocked — contract violations found
@@ -317,7 +317,7 @@ HTTP 400:
 }
 ```
 
-### Proxy — response blocked (upstream violation)
+### Proxy - response blocked (upstream violation)
 
 ```
 HTTP 502:
@@ -335,9 +335,9 @@ HTTP 502:
 
 The React frontend provides three panels:
 
-- **Publish Contract** — define a contract (method, endpoint, target URL, request/response schemas) and register it with the proxy
-- **Test Request** — send a request to Service A and view the result or a detailed violation table inline
-- **Violation History** — browse all recorded violations with timestamps, direction badges (REQUEST / RESPONSE), and per-field details
+- **Publish Contract** - define a contract (method, endpoint, target URL, request/response schemas) and register it with the proxy
+- **Test Request** - send a request to Service A and view the result or a detailed violation table inline
+- **Violation History** - browse all recorded violations with timestamps, direction badges (REQUEST / RESPONSE), and per-field details
 
 Service URLs are configurable via environment variables:
 
